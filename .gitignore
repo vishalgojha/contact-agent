@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+
+memory/*.json
+!memory/.gitkeep
+
+output/*
+!output/.gitkeep
+
+inputs/unsaved_*
+inputs/~$*
+inputs/google_contacts.*
+
+_vendor/truecaller-cli/node_modules/
+_vendor/truecaller-cli/config.json
+_vendor/truecaller-cli/.git/

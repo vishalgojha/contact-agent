@@ -1,0 +1,5 @@
+duckduckgo-search>=7.0.0
+ollama>=0.5.0
+openpyxl>=3.1.0
+phonenumbers>=8.13.0
+pydantic>=2.9.0,<3.0.0

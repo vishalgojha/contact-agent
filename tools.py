@@ -421,37 +421,35 @@ def export_resolved(records: list[ContactRecord], output_path: str | Path) -> Pa
 def _load_contacts_from_csv(path: Path, default_region: str) -> list[LoadedContact]:
     contacts: list[LoadedContact] = []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames:
-            phone_columns = [field for field in reader.fieldnames if _looks_like_phone_column(field)]
-            for row_number, row in enumerate(reader, start=2):
-                values = [row.get(column, "") for column in (phone_columns or [reader.fieldnames[0]])]
-                for value in values:
-                    normalized = normalize_phone(str(value), default_region)
-                    if normalized:
-                        contacts.append(
-                            LoadedContact(
-                                phone=normalized,
-                                original_value=str(value).strip(),
-                                source_file=str(path),
-                                row_number=row_number,
-                            )
-                        )
-        else:
-            handle.seek(0)
-            fallback_reader = csv.reader(handle)
-            for row_number, row in enumerate(fallback_reader, start=1):
-                for value in row:
-                    normalized = normalize_phone(str(value), default_region)
-                    if normalized:
-                        contacts.append(
-                            LoadedContact(
-                                phone=normalized,
-                                original_value=str(value).strip(),
-                                source_file=str(path),
-                                row_number=row_number,
-                            )
-                        )
+        rows = list(csv.reader(handle))
+
+    if not rows:
+        return contacts
+
+    headers, data_rows, start_row = _split_sheet_rows([tuple(row) for row in rows])
+    header_detected = start_row == 2
+    phone_indices = [index for index, header in enumerate(headers) if _looks_like_phone_column(header)]
+    if header_detected and not phone_indices and headers:
+        phone_indices = [0]
+
+    for row_number, row in enumerate(data_rows, start=start_row):
+        values = list(row)
+        candidate_values = (
+            [values[index] if index < len(values) else "" for index in phone_indices]
+            if header_detected
+            else values
+        )
+        for value in candidate_values:
+            normalized = normalize_phone(str(value), default_region)
+            if normalized:
+                contacts.append(
+                    LoadedContact(
+                        phone=normalized,
+                        original_value=str(value).strip(),
+                        source_file=str(path),
+                        row_number=row_number,
+                    )
+                )
     return contacts
 
 

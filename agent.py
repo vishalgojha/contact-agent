@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from memory import ContactRecord, MemoryStore
+from tui import ContactAgentTUI
 from prompts import (
     NAME_EXTRACTION_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
@@ -272,6 +273,9 @@ class ContactRecoveryAgent:
         self.truecaller_repo = truecaller_repo
         self.truecaller_ready = False
         self.truecaller_reason = ""
+        self.last_resolved_records: list[ContactRecord] = []
+        self.last_export_path: Path | None = None
+        self.last_summary = ""
 
     def run(self) -> int:
         """Run the full agent workflow end-to-end."""
@@ -321,6 +325,9 @@ class ContactRecoveryAgent:
         export_path = export_resolved(resolved, self.output_root / "recovered.csv")
         known = sum(1 for record in resolved if record.name != "UNKNOWN")
         summary = f"Resolved {known} of {len(resolved)} contacts."
+        self.last_resolved_records = resolved
+        self.last_export_path = export_path
+        self.last_summary = summary
         self.memory.finish_session(self.session_id, exported_path=str(export_path), summary=summary)
         self.logger.info(summary)
         self.logger.info("Exported results to %s", export_path)
@@ -837,6 +844,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Local-first Contact Name Recovery Agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("onboard", help="Launch the interactive setup wizard and then run recovery.")
+
     run_parser = subparsers.add_parser("run", help="Recover names for phone numbers.")
     run_parser.add_argument("--input", required=True, help="Path to numbers.csv or an input directory.")
     run_parser.add_argument("--model", default="llama3.2:latest", help="Ollama model name.")
@@ -922,6 +931,34 @@ def resolve_google_contacts_path(raw_path: str | None, project_root: Path, input
     return None
 
 
+def build_agent(
+    *,
+    project_root: Path,
+    input_path: Path,
+    model: str,
+    allow_web: bool,
+    google_contacts_path: Path | None,
+    default_region: str,
+    max_iterations: int,
+    ollama_host: str,
+    allow_truecaller: bool,
+) -> ContactRecoveryAgent:
+    """Construct the contact recovery agent from resolved configuration."""
+    return ContactRecoveryAgent(
+        input_path=input_path,
+        model=model,
+        allow_web=allow_web,
+        google_contacts_path=google_contacts_path,
+        default_region=default_region,
+        max_iterations=max_iterations,
+        memory_root=project_root / "memory",
+        output_root=project_root / "output",
+        ollama_host=ollama_host,
+        allow_truecaller=allow_truecaller,
+        truecaller_repo=project_root / "_vendor" / "truecaller-cli",
+    )
+
+
 def main() -> int:
     """CLI entrypoint."""
     args = parse_args()
@@ -930,6 +967,37 @@ def main() -> int:
     memory_root = project_root / "memory"
     memory_store = MemoryStore(memory_root)
     interactive = sys.stdin.isatty()
+
+    if args.command == "onboard":
+        logger = configure_logging()
+        if not interactive:
+            logger.error("The onboarding wizard requires an interactive terminal session.")
+            return 1
+        truecaller_status = get_truecaller_status(truecaller_repo)
+        tui = ContactAgentTUI(project_root)
+        config = tui.run_onboarding(
+            memory_store=memory_store,
+            truecaller_ready=truecaller_status.ready,
+            truecaller_reason=truecaller_status.reason,
+        )
+        if config is None:
+            return 0
+        memory_store.set_default_region(config.default_region)
+        agent = build_agent(
+            project_root=project_root,
+            input_path=config.input_path,
+            model=config.model,
+            allow_web=config.allow_web,
+            google_contacts_path=config.google_contacts_path,
+            default_region=config.default_region,
+            max_iterations=config.max_iterations,
+            ollama_host=config.ollama_host,
+            allow_truecaller=config.allow_truecaller,
+        )
+        exit_code = agent.run()
+        tui.show_run_summary(records=agent.last_resolved_records, export_path=agent.last_export_path)
+        return exit_code
+
     default_region = resolve_default_region(memory_store, getattr(args, "default_region", ""), interactive)
 
     if args.command == "setup-truecaller":
@@ -969,18 +1037,16 @@ def main() -> int:
     input_path = Path(args.input).resolve()
     google_contacts_path = resolve_google_contacts_path(args.google_contacts, project_root, input_path)
 
-    agent = ContactRecoveryAgent(
+    agent = build_agent(
+        project_root=project_root,
         input_path=input_path,
         model=args.model,
         allow_web=args.allow_web == "yes",
         google_contacts_path=google_contacts_path,
         default_region=default_region,
         max_iterations=args.max_iterations,
-        memory_root=memory_root,
-        output_root=project_root / "output",
         ollama_host=args.ollama_host,
         allow_truecaller=args.allow_truecaller == "yes",
-        truecaller_repo=truecaller_repo,
     )
     return agent.run()
 

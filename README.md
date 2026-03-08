@@ -71,6 +71,22 @@ The agent supports:
 
 ## Usage
 
+Launch the guided onboarding flow:
+
+```bash
+python agent.py onboard
+```
+
+The onboarding wizard walks through:
+
+- privacy and local-storage defaults
+- input file selection from `inputs/` or a custom path
+- optional Google Contacts file selection
+- default region setup
+- safe/local vs opt-in web search
+- optional Truecaller usage when locally configured
+- final review before the run starts
+
 Run in fully local mode:
 
 ```bash
@@ -124,5 +140,6 @@ Quick Start
 ```bash
 pip install -r requirements.txt
 ollama pull llama3.2:latest   # or your preferred model
+python agent.py onboard       # guided setup with review panels
 python agent.py run --input inputs/numbers.csv --allow-web no   # start safe/local-only
 ```
